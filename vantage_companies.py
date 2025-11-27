@@ -97,3 +97,25 @@ class CompaniesHouseRegistry:
             print(f"   ❌ API Error (PSC): {e}")
             return []
 
+    def get_charges(self, company_number):
+        """
+        Get the mortgage/charge history (DEBT).
+        This is critical for finding 'Maturing Debt' distress signals.
+        """
+        if not self.api_key: return []
+
+        endpoint = f"{self.base_url}/company/{company_number}/charges"
+        
+        try:
+            response = requests.get(endpoint, headers=self._get_headers())
+            if response.status_code == 200:
+                data = response.json()
+                # We care about 'outstanding' charges
+                charges = data.get('items', [])
+                outstanding = [c for c in charges if c.get('status') == 'outstanding']
+                return outstanding
+            return []
+        except Exception as e:
+            print(f"   ❌ API Error (Charges): {e}")
+            return []
+
