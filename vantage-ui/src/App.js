@@ -6,9 +6,21 @@ import {
   LayoutGrid, List, PieChart, Bell, Settings, User,
   TrendingUp, AlertTriangle, FileText, Banknote, Users
 } from 'lucide-react';
+import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
+import 'leaflet/dist/leaflet.css';
+import L from 'leaflet';
+
+// Fix Leaflet Icon issue
+delete L.Icon.Default.prototype._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
+  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+});
 
 // --- CONFIGURATION ---
 const API_URL = "http://localhost:8000";
+const OS_API_KEY = "qL5Ai49ojGQUah0GR45eIaXTGUjPTixa";
 
 const Badge = ({ children, variant = 'neutral', className = '' }) => {
   const styles = {
@@ -25,16 +37,24 @@ const Badge = ({ children, variant = 'neutral', className = '' }) => {
   );
 };
 
+// Map Controller to pan to selected asset
+const MapController = ({ coords }) => {
+  const map = useMap();
+  useEffect(() => {
+    if (coords) {
+      map.setView(coords, 18); // Zoom 18 for building detail
+    }
+  }, [coords, map]);
+  return null;
+};
+
 const DistressCard = ({ asset, onClick, isSelected }) => {
   let riskVariant = 'low';
-  let riskScore = '2.4';
   
   if (asset.asset_rating_band === 'F' || asset.asset_rating_band === 'G') {
     riskVariant = 'critical';
-    riskScore = '9.1';
   } else if (asset.asset_rating_band === 'E') {
     riskVariant = 'high';
-    riskScore = '7.5';
   }
 
   return (
@@ -73,6 +93,7 @@ const TerminalView = () => {
   const [chargesData, setChargesData] = useState([]);
   const [apiStatus, setApiStatus] = useState('connecting');
   const [loadingCorp, setLoadingCorp] = useState(false);
+  const [viewMode, setViewMode] = useState('intel'); // 'intel' or 'map'
 
   // Load Data
   useEffect(() => {
@@ -87,10 +108,10 @@ const TerminalView = () => {
         if(assets.length > 0) setSelectedAsset(assets[0]);
       } catch (err) {
         setApiStatus('offline');
-        // Fallback demo data
+        // Fallback demo data with coordinates for Map
         const demoData = [
-           { address: '311-313 WHITECHAPEL ROAD', asset_rating_band: 'G', floor_area: 1200, property_type: 'Retail', company_name: 'PLACES FOR LONDON LIMITED', company_number: '05557724' },
-           { address: 'Unit 3, The Hanger', asset_rating_band: 'G', floor_area: 450, property_type: 'Industrial', company_name: 'GROUPADI LIMITED', company_number: '12345678' },
+           { address: '311-313 WHITECHAPEL ROAD', asset_rating_band: 'G', floor_area: 1200, property_type: 'Retail', company_name: 'PLACES FOR LONDON LIMITED', company_number: '05557724', lat: 51.5194, lng: -0.0601 },
+           { address: 'Unit 3, The Hanger', asset_rating_band: 'G', floor_area: 450, property_type: 'Industrial', company_name: 'GROUPADI LIMITED', company_number: '12345678', lat: 51.528, lng: -0.059 },
         ];
         setDistressData(demoData);
         setSelectedAsset(demoData[0]);
@@ -133,7 +154,6 @@ const TerminalView = () => {
 
   const handleSearch = (e) => {
     e.preventDefault();
-    // Implementation for search would go here
   };
 
   return (
@@ -145,8 +165,16 @@ const TerminalView = () => {
             <div className="w-4 h-4 bg-black rotate-45"></div>
         </div>
         <div className="flex flex-col gap-6 w-full">
-          <button className="h-10 w-full flex items-center justify-center text-emerald-500 bg-zinc-900 border-l-2 border-emerald-500"><LayoutGrid size={20} /></button>
-          <button className="h-10 w-full flex items-center justify-center text-zinc-400 hover:text-white"><MapIcon size={20} /></button>
+          <button 
+            onClick={() => setViewMode('intel')}
+            className={`h-10 w-full flex items-center justify-center transition-colors border-l-2 ${viewMode === 'intel' ? 'text-emerald-500 bg-zinc-900 border-emerald-500' : 'text-zinc-400 border-transparent hover:text-white'}`}>
+            <LayoutGrid size={20} />
+          </button>
+          <button 
+            onClick={() => setViewMode('map')}
+            className={`h-10 w-full flex items-center justify-center transition-colors border-l-2 ${viewMode === 'map' ? 'text-emerald-500 bg-zinc-900 border-emerald-500' : 'text-zinc-400 border-transparent hover:text-white'}`}>
+            <MapIcon size={20} />
+          </button>
         </div>
       </div>
 
@@ -180,164 +208,204 @@ const TerminalView = () => {
         </div>
       </div>
 
-      {/* 3. MAIN DOSSIER VIEW */}
+      {/* 3. MAIN DOSSIER VIEW / MAP VIEW */}
       <div className="flex-1 bg-black relative flex flex-col min-w-0">
-        {selectedAsset ? (
-          <>
-            {/* Header */}
-            <div className="h-16 border-b border-zinc-900 flex items-center justify-between px-8 bg-zinc-950">
-              <div className="flex flex-col justify-center">
-                <div className="flex items-center gap-3 mb-1">
-                    <h1 className="text-xl font-bold text-white tracking-tight font-sans">{selectedAsset.address}</h1>
-                    <Badge variant="critical">BAND {selectedAsset.asset_rating_band}</Badge>
-                </div>
-                <div className="flex items-center gap-4 text-[10px] font-mono text-zinc-500 uppercase">
-                    <span>UPRN: <span className="text-zinc-300">{selectedAsset.uprn}</span></span>
-                    <span className="text-zinc-700">|</span>
-                    <span>OWNER: <span className="text-emerald-500 font-bold">{selectedAsset.company_name || 'UNKNOWN'}</span></span>
-                </div>
-              </div>
-              <div className="flex gap-3">
-                 <button className="px-4 py-2 border border-zinc-700 text-zinc-400 text-xs font-bold font-mono rounded-sm flex items-center gap-2">
-                  <FileText size={14}/> EXPORT MEMO
-                </button>
-              </div>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-8 bg-black">
-              
-              {/* Top Row: Metrics */}
-              <div className="grid grid-cols-3 gap-6 mb-8">
-                <div className="bg-zinc-950 border border-zinc-900 p-5">
-                  <div className="text-[10px] font-mono text-zinc-500 uppercase mb-2">Est. Value (Comps)</div>
-                  <div className="text-2xl font-mono text-white tracking-tighter">£{(selectedAsset.floor_area * 350).toLocaleString()}</div>
-                  <div className="text-[10px] text-zinc-600 mt-2 font-mono">BASED ON £350/SQFT (E1)</div>
-                </div>
-                <div className="bg-zinc-950 border border-zinc-900 p-5">
-                  <div className="text-[10px] font-mono text-zinc-500 uppercase mb-2">Compliance Risk</div>
-                  <div className="text-2xl font-mono text-red-500 tracking-tighter">CRITICAL</div>
-                  <div className="text-[10px] text-red-900/50 mt-2 font-mono">UNLAWFUL TO LET (MEES)</div>
-                </div>
-                 <div className="bg-zinc-950 border border-zinc-900 p-5">
-                  <div className="text-[10px] font-mono text-zinc-500 uppercase mb-2">Corporate Distress</div>
-                  <div className="text-2xl font-mono text-orange-500 tracking-tighter">
-                    {chargesData.length > 0 ? `${chargesData.length} CHARGES` : 'CLEAR'}
-                  </div>
-                  <div className="text-[10px] text-zinc-600 mt-2 font-mono">
-                    {chargesData.length > 0 ? 'MATURING DEBT DETECTED' : 'NO CHARGES FILED'}
-                  </div>
-                </div>
-              </div>
-
-              {/* CORPORATE VEIL VISUALIZER */}
-              <div className="grid grid-cols-2 gap-8 h-[500px]">
+        
+        {viewMode === 'map' ? (
+          // --- OS MAP INTEGRATION ---
+          <div className="h-full w-full relative">
+            <MapContainer 
+                center={[51.505, -0.09]} 
+                zoom={13} 
+                style={{ height: '100%', width: '100%', background: '#111' }}
+            >
+                 {/* OS MAPS MASTERMAP (Grey scale for Intel look) */}
+                 {/* Using Road_3857 for Web Mercator compatibility */}
+                <TileLayer
+                    url={`https://api.os.uk/maps/raster/v1/zxy/Light_3857/{z}/{x}/{y}.png?key=${OS_API_KEY}`}
+                    attribution='&copy; Crown copyright and database rights 2025 OS'
+                    maxZoom={20}
+                />
                 
-                {/* Left: Corporate Tree */}
-                <div className="bg-zinc-950 border border-zinc-900 p-6 flex flex-col">
-                  <h3 className="text-xs font-bold text-zinc-300 font-mono uppercase tracking-wider mb-6 flex items-center gap-2">
-                    <Users size={14} className="text-emerald-500"/> Corporate Veil
-                  </h3>
-                  
-                  {loadingCorp ? (
-                    <div className="text-zinc-600 font-mono text-xs animate-pulse">Decrypting Corporate Structure...</div>
-                  ) : corporateData ? (
-                    <div className="relative flex-1">
-                       {/* Tree Visualization (Simplified for React) */}
-                       <div className="absolute left-8 top-0 bottom-0 w-[1px] bg-zinc-800"></div>
-                       
-                       <div className="space-y-8 relative z-10">
-                          {/* 1. The Asset */}
-                          <div className="flex items-center gap-4">
-                             <div className="w-16 h-16 bg-zinc-900 border border-zinc-700 flex items-center justify-center rounded">
-                                <Building2 size={24} className="text-zinc-500"/>
-                             </div>
-                             <div>
-                                <div className="text-[10px] text-zinc-500 uppercase font-mono">ASSET</div>
-                                <div className="text-sm text-white font-bold">{selectedAsset.address}</div>
-                             </div>
-                          </div>
-
-                          {/* 2. The Company */}
-                          <div className="flex items-center gap-4 ml-8">
-                             <div className="w-4 h-[1px] bg-zinc-600"></div>
-                             <div className="w-16 h-16 bg-emerald-900/20 border border-emerald-500/50 flex items-center justify-center rounded">
-                                <BriefcaseIcon size={24} className="text-emerald-500"/>
-                             </div>
-                             <div>
-                                <div className="text-[10px] text-zinc-500 uppercase font-mono">TITLE HOLDER</div>
-                                <div className="text-sm text-white font-bold">{corporateData.profile?.company_name}</div>
-                                <div className="text-[10px] text-zinc-500 font-mono">#{corporateData.profile?.company_number}</div>
-                             </div>
-                          </div>
-
-                          {/* 3. The UBOs */}
-                          <div className="ml-16 space-y-4">
-                             {corporateData.beneficial_owners?.map((ubo, i) => (
-                               <div key={i} className="flex items-center gap-4">
-                                  <div className="w-4 h-[1px] bg-zinc-600"></div>
-                                  <div className="w-12 h-12 bg-zinc-800 border border-zinc-600 flex items-center justify-center rounded-full">
-                                      <User size={16} className="text-white"/>
-                                  </div>
-                                  <div>
-                                      <div className="text-[10px] text-zinc-500 uppercase font-mono">BENEFICIAL OWNER</div>
-                                      <div className="text-xs text-white font-bold">{ubo.name}</div>
-                                      <div className="text-[9px] text-zinc-600 font-mono">{ubo.kind || 'INDIVIDUAL'}</div>
-                                  </div>
-                               </div>
-                             ))}
-                             {(!corporateData.beneficial_owners || corporateData.beneficial_owners.length === 0) && (
-                               <div className="text-zinc-600 text-xs font-mono ml-8 italic">No PSC data available.</div>
-                             )}
-                          </div>
-                       </div>
+                {selectedAsset && selectedAsset.lat && (
+                    <>
+                        <Marker position={[selectedAsset.lat, selectedAsset.lng]} />
+                        <MapController coords={[selectedAsset.lat, selectedAsset.lng]} />
+                    </>
+                )}
+            </MapContainer>
+            
+            {/* Map Overlay Info */}
+            {selectedAsset && (
+                <div className="absolute top-4 left-4 z-[400] bg-black/90 border border-zinc-800 p-4 max-w-sm backdrop-blur">
+                    <h3 className="text-white font-bold text-sm">{selectedAsset.address}</h3>
+                    <div className="text-xs text-zinc-400 font-mono mt-1">UPRN: {selectedAsset.uprn || 'RESOLVING...'}</div>
+                    <div className="mt-2 flex gap-2">
+                         <Badge variant="critical">BAND {selectedAsset.asset_rating_band}</Badge>
+                         <Badge variant="neutral">OS MASTERMAP</Badge>
                     </div>
-                  ) : (
-                    <div className="text-zinc-600 font-mono text-xs">Select an asset with a corporate owner.</div>
-                  )}
                 </div>
-
-                {/* Right: Debt Timeline */}
-                <div className="bg-zinc-900 border border-zinc-800 p-6 overflow-y-auto">
-                   <h3 className="text-xs font-bold text-zinc-300 font-mono uppercase tracking-wider mb-6 flex items-center gap-2">
-                    <Banknote size={14} className="text-orange-500"/> Timeline of Squeeze (Charges)
-                  </h3>
-                  
-                  {chargesData.length > 0 ? (
-                    <div className="space-y-4">
-                      {chargesData.map((charge, i) => (
-                        <div key={i} className="bg-black border border-zinc-800 p-4 rounded-sm relative overflow-hidden">
-                           <div className="flex justify-between items-start mb-2">
-                              <span className="text-[10px] font-mono text-orange-500 border border-orange-500/30 px-1 rounded uppercase">
-                                {charge.status}
-                              </span>
-                              <span className="text-[10px] font-mono text-zinc-500">
-                                CREATED: {charge.created_on}
-                              </span>
-                           </div>
-                           <div className="text-xs text-zinc-300 font-bold mb-1">
-                              {charge.persons_entitled?.[0]?.name || 'UNKNOWN LENDER'}
-                           </div>
-                           <div className="text-[10px] text-zinc-600 font-mono truncate">
-                              {charge.particulars?.description || 'Fixed Charge over Property'}
-                           </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="flex flex-col items-center justify-center h-full text-zinc-600">
-                       <Activity size={32} className="opacity-20 mb-2"/>
-                       <p className="font-mono text-xs">No Outstanding Charges Found</p>
-                    </div>
-                  )}
-                </div>
-
-              </div>
-            </div>
-          </>
-        ) : (
-          <div className="flex items-center justify-center h-full text-zinc-500 font-mono text-xs">
-            SELECT A TARGET TO INITIALIZE INTELLIGENCE
+            )}
           </div>
+        ) : (
+          // --- INTEL VIEW (Existing) ---
+          selectedAsset ? (
+            <>
+              {/* Header */}
+              <div className="h-16 border-b border-zinc-900 flex items-center justify-between px-8 bg-zinc-950">
+                <div className="flex flex-col justify-center">
+                  <div className="flex items-center gap-3 mb-1">
+                      <h1 className="text-xl font-bold text-white tracking-tight font-sans">{selectedAsset.address}</h1>
+                      <Badge variant="critical">BAND {selectedAsset.asset_rating_band}</Badge>
+                  </div>
+                  <div className="flex items-center gap-4 text-[10px] font-mono text-zinc-500 uppercase">
+                      <span>UPRN: <span className="text-zinc-300">{selectedAsset.uprn}</span></span>
+                      <span className="text-zinc-700">|</span>
+                      <span>OWNER: <span className="text-emerald-500 font-bold">{selectedAsset.company_name || 'UNKNOWN'}</span></span>
+                  </div>
+                </div>
+                <div className="flex gap-3">
+                   <button className="px-4 py-2 border border-zinc-700 text-zinc-400 text-xs font-bold font-mono rounded-sm flex items-center gap-2">
+                    <FileText size={14}/> EXPORT MEMO
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-8 bg-black">
+                
+                {/* Top Row: Metrics */}
+                <div className="grid grid-cols-3 gap-6 mb-8">
+                  <div className="bg-zinc-950 border border-zinc-900 p-5">
+                    <div className="text-[10px] font-mono text-zinc-500 uppercase mb-2">Est. Value (Comps)</div>
+                    <div className="text-2xl font-mono text-white tracking-tighter">£{(selectedAsset.floor_area * 350).toLocaleString()}</div>
+                    <div className="text-[10px] text-zinc-600 mt-2 font-mono">BASED ON £350/SQFT (E1)</div>
+                  </div>
+                  <div className="bg-zinc-950 border border-zinc-900 p-5">
+                    <div className="text-[10px] font-mono text-zinc-500 uppercase mb-2">Compliance Risk</div>
+                    <div className="text-2xl font-mono text-red-500 tracking-tighter">CRITICAL</div>
+                    <div className="text-[10px] text-red-900/50 mt-2 font-mono">UNLAWFUL TO LET (MEES)</div>
+                  </div>
+                   <div className="bg-zinc-950 border border-zinc-900 p-5">
+                    <div className="text-[10px] font-mono text-zinc-500 uppercase mb-2">Corporate Distress</div>
+                    <div className="text-2xl font-mono text-orange-500 tracking-tighter">
+                      {chargesData.length > 0 ? `${chargesData.length} CHARGES` : 'CLEAR'}
+                    </div>
+                    <div className="text-[10px] text-zinc-600 mt-2 font-mono">
+                      {chargesData.length > 0 ? 'MATURING DEBT DETECTED' : 'NO CHARGES FILED'}
+                    </div>
+                  </div>
+                </div>
+
+                {/* CORPORATE VEIL VISUALIZER */}
+                <div className="grid grid-cols-2 gap-8 h-[500px]">
+                  
+                  {/* Left: Corporate Tree */}
+                  <div className="bg-zinc-950 border border-zinc-900 p-6 flex flex-col">
+                    <h3 className="text-xs font-bold text-zinc-300 font-mono uppercase tracking-wider mb-6 flex items-center gap-2">
+                      <Users size={14} className="text-emerald-500"/> Corporate Veil
+                    </h3>
+                    
+                    {loadingCorp ? (
+                      <div className="text-zinc-600 font-mono text-xs animate-pulse">Decrypting Corporate Structure...</div>
+                    ) : corporateData ? (
+                      <div className="relative flex-1">
+                         {/* Tree Visualization (Simplified for React) */}
+                         <div className="absolute left-8 top-0 bottom-0 w-[1px] bg-zinc-800"></div>
+                         
+                         <div className="space-y-8 relative z-10">
+                            {/* 1. The Asset */}
+                            <div className="flex items-center gap-4">
+                               <div className="w-16 h-16 bg-zinc-900 border border-zinc-700 flex items-center justify-center rounded">
+                                  <Building2 size={24} className="text-zinc-500"/>
+                               </div>
+                               <div>
+                                  <div className="text-[10px] text-zinc-500 uppercase font-mono">ASSET</div>
+                                  <div className="text-sm text-white font-bold">{selectedAsset.address}</div>
+                               </div>
+                            </div>
+
+                            {/* 2. The Company */}
+                            <div className="flex items-center gap-4 ml-8">
+                               <div className="w-4 h-[1px] bg-zinc-600"></div>
+                               <div className="w-16 h-16 bg-emerald-900/20 border border-emerald-500/50 flex items-center justify-center rounded">
+                                  <BriefcaseIcon size={24} className="text-emerald-500"/>
+                               </div>
+                               <div>
+                                  <div className="text-[10px] text-zinc-500 uppercase font-mono">TITLE HOLDER</div>
+                                  <div className="text-sm text-white font-bold">{corporateData.profile?.company_name}</div>
+                                  <div className="text-[10px] text-zinc-500 font-mono">#{corporateData.profile?.company_number}</div>
+                               </div>
+                            </div>
+
+                            {/* 3. The UBOs */}
+                            <div className="ml-16 space-y-4">
+                               {corporateData.beneficial_owners?.map((ubo, i) => (
+                                 <div key={i} className="flex items-center gap-4">
+                                    <div className="w-4 h-[1px] bg-zinc-600"></div>
+                                    <div className="w-12 h-12 bg-zinc-800 border border-zinc-600 flex items-center justify-center rounded-full">
+                                        <User size={16} className="text-white"/>
+                                    </div>
+                                    <div>
+                                        <div className="text-[10px] text-zinc-500 uppercase font-mono">BENEFICIAL OWNER</div>
+                                        <div className="text-xs text-white font-bold">{ubo.name}</div>
+                                        <div className="text-[9px] text-zinc-600 font-mono">{ubo.kind || 'INDIVIDUAL'}</div>
+                                    </div>
+                                 </div>
+                               ))}
+                               {(!corporateData.beneficial_owners || corporateData.beneficial_owners.length === 0) && (
+                                 <div className="text-zinc-600 text-xs font-mono ml-8 italic">No PSC data available.</div>
+                               )}
+                            </div>
+                         </div>
+                      </div>
+                    ) : (
+                      <div className="text-zinc-600 font-mono text-xs">Select an asset with a corporate owner.</div>
+                    )}
+                  </div>
+
+                  {/* Right: Debt Timeline */}
+                  <div className="bg-zinc-900 border border-zinc-800 p-6 overflow-y-auto">
+                     <h3 className="text-xs font-bold text-zinc-300 font-mono uppercase tracking-wider mb-6 flex items-center gap-2">
+                      <Banknote size={14} className="text-orange-500"/> Timeline of Squeeze (Charges)
+                    </h3>
+                    
+                    {chargesData.length > 0 ? (
+                      <div className="space-y-4">
+                        {chargesData.map((charge, i) => (
+                          <div key={i} className="bg-black border border-zinc-800 p-4 rounded-sm relative overflow-hidden">
+                             <div className="flex justify-between items-start mb-2">
+                                <span className="text-[10px] font-mono text-orange-500 border border-orange-500/30 px-1 rounded uppercase">
+                                  {charge.status}
+                                </span>
+                                <span className="text-[10px] font-mono text-zinc-500">
+                                  CREATED: {charge.created_on}
+                                </span>
+                             </div>
+                             <div className="text-xs text-zinc-300 font-bold mb-1">
+                                {charge.persons_entitled?.[0]?.name || 'UNKNOWN LENDER'}
+                             </div>
+                             <div className="text-[10px] text-zinc-600 font-mono truncate">
+                                {charge.particulars?.description || 'Fixed Charge over Property'}
+                             </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center h-full text-zinc-600">
+                         <Activity size={32} className="opacity-20 mb-2"/>
+                         <p className="font-mono text-xs">No Outstanding Charges Found</p>
+                      </div>
+                    )}
+                  </div>
+
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="flex items-center justify-center h-full text-zinc-500 font-mono text-xs">
+              SELECT A TARGET TO INITIALIZE INTELLIGENCE
+            </div>
+          )
         )}
       </div>
 
