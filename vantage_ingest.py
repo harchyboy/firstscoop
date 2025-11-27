@@ -1,67 +1,42 @@
 import os
 import pandas as pd
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from vantage_s3 import VantageDataLake
 from dotenv import load_dotenv
 
-# --- SETUP ---
-print("🔍 SYSTEM CHECK STARTING...")
-dotenv_path = os.path.join(os.getcwd(), '.env')
-alt_env_path = os.path.join(os.getcwd(), 'vantage-engine.env')
-
-if os.path.exists(dotenv_path):
-    load_dotenv(dotenv_path)
-elif os.path.exists(alt_env_path):
-    load_dotenv(alt_env_path)
-
-# --- CTO PIVOT: SWITCH TO SQLITE ---
-# We are using a local file database to bypass the server requirement.
-# This creates a file named 'vantage.db' in your current folder.
-print("⚠️ SWITCHING TO SQLITE (File-based Database)")
+# --- CONFIGURATION ---
 DB_CONN = "sqlite:///vantage.db"
 
 def ingest_pipeline():
-    print("\n🚀 Starting Vantage Cloud Pipeline (SQLite Mode)...")
+    print("\n🚀 Starting Vantage Cloud Pipeline (EPC Module)...")
     
+    # Setup
+    load_dotenv()
     lake = VantageDataLake()
     
-    # Create local storage folder
     if not os.path.exists("./epc_data"):
         os.makedirs("./epc_data")
 
-    # 1. SCAN S3 FOR ALL CERTIFICATES
-    print(f"📡 Scanning S3 Bucket '{lake.bucket_name}' for all certificate files...")
-    
+    # 1. SCAN S3 FOR CERTIFICATES
+    print(f"📡 Scanning S3 Bucket '{lake.bucket_name}' for certificate files...")
     target_files = []
     
     try:
-        # List everything in the raw/epc folder
         response = lake.s3_client.list_objects_v2(Bucket=lake.bucket_name, Prefix="raw/epc/")
-        
         if 'Contents' in response:
             for obj in response['Contents']:
                 key = obj['Key']
-                # FILTER: Look for 'certificates.csv' but ignore 'recommendations'
                 if "certificates.csv" in key and "recommendations" not in key:
                     target_files.append(key)
-        else:
-            print("❌ The 'raw/epc/' folder appears to be empty.")
-            return
-
     except Exception as e:
         print(f"❌ Error Listing S3 Files: {e}")
         return
 
-    print(f"✅ Found {len(target_files)} CSV files to process.")
+    print(f"✅ Found {len(target_files)} EPC files to process.")
 
-    # 2. CONNECT TO DB (Creates the file if missing)
-    try:
-        engine = create_engine(DB_CONN)
-        print("✅ Database Connection Established (vantage.db)")
-    except Exception as e:
-        print(f"❌ Database Connection Error: {e}")
-        return
-
+    # 2. CONNECT TO DB
+    engine = create_engine(DB_CONN)
+    
     # 3. LOOP THROUGH FILES
     total_ingested = 0
     
@@ -71,41 +46,66 @@ def ingest_pipeline():
         
         print(f"\n⬇️  Processing: {s3_key}")
         
-        # Download
-        success = lake.download_file(s3_key, local_path)
-        if not success:
-            print(f"   ⚠️ Skipping {s3_key} (Download Failed)")
-            continue
+        if not os.path.exists(local_path):
+            lake.download_file(s3_key, local_path)
+        else:
+            print(f"   ✅ File already exists locally: {local_path}")
 
-        # Ingest
         try:
+            # Read CSV
             df = pd.read_csv(local_path, low_memory=False)
             df.columns = [c.lower() for c in df.columns]
             
-            valid_cols = [
-                'uprn', 'address', 'asset_rating_band', 'floor_area', 'property_type',
-                'lmk_key', 'building_reference_number', 'inspection_date', 'local_authority', 'asset_rating'
+            # --- MAPPING TO NEW SCHEMA ---
+            
+            # 1. UPSERT PROPERTIES (We need the UPRN in master_properties first)
+            # We use the address from EPC as a fallback if not already in DB
+            properties = df[['uprn', 'address', 'postcode', 'local_authority']].copy()
+            properties.columns = ['uprn', 'address_line_1', 'postcode', 'local_authority_code']
+            properties = properties.dropna(subset=['uprn'])
+            properties = properties.drop_duplicates(subset=['uprn'])
+            
+            # 2. PREPARE ASSESSMENTS
+            assessments = df[[
+                'lmk_key', 'uprn', 'inspection_date', 'asset_rating', 
+                'asset_rating_band', 'floor_area', 'property_type'
+            ]].copy()
+            assessments.columns = [
+                'certificate_id', 'uprn', 'inspection_date', 'asset_rating', 
+                'asset_rating_band', 'floor_area', 'property_type'
             ]
-            
-            existing_cols = [c for c in valid_cols if c in df.columns]
-            df_clean = df[existing_cols]
-            
-            if df_clean.empty:
-                print("   ⚠️ Skipped (No valid columns found)")
-                continue
+            assessments['is_latest'] = 1 # Simplified assumption for now
+            assessments = assessments.dropna(subset=['certificate_id'])
+
+            # WRITE TO DB
+            with engine.connect() as conn:
+                # A. Properties (Insert or Ignore)
+                properties.to_sql('temp_epc_props', conn, if_exists='replace', index=False)
+                conn.execute(text("""
+                    INSERT OR IGNORE INTO master_properties (uprn, address_line_1, postcode, local_authority_code)
+                    SELECT uprn, address_line_1, postcode, local_authority_code FROM temp_epc_props
+                """))
                 
-            # Push to SQL
-            df_clean.to_sql('raw_epc_commercial', engine, if_exists='append', index=False)
-            count = len(df_clean)
+                # B. Assessments (Insert or Replace)
+                assessments.to_sql('temp_epc_assessments', conn, if_exists='replace', index=False)
+                conn.execute(text("""
+                    INSERT OR REPLACE INTO epc_assessments 
+                    (certificate_id, uprn, inspection_date, asset_rating, asset_rating_band, floor_area, property_type, is_latest)
+                    SELECT certificate_id, uprn, inspection_date, asset_rating, asset_rating_band, floor_area, property_type, is_latest 
+                    FROM temp_epc_assessments
+                """))
+                conn.commit()
+
+            count = len(assessments)
             total_ingested += count
-            print(f"   ✅ Added {count} rows to Database.")
+            print(f"   ✅ Linked {count} EPCs to Master Property Index.")
             
         except Exception as e:
             print(f"   ❌ Error Ingesting: {e}")
 
     print("=========================================")
     print(f"🎉 BATCH COMPLETE.")
-    print(f"📊 Total Buildings Ingested: {total_ingested}")
+    print(f"📊 Total EPCs Ingested: {total_ingested}")
     print("=========================================")
 
 if __name__ == "__main__":

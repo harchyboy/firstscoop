@@ -1,12 +1,98 @@
-CREATE TABLE IF NOT EXISTS raw_epc_commercial (
-    id SERIAL PRIMARY KEY,
-    uprn VARCHAR(20),
-    address TEXT,
-    asset_rating_band CHAR(2), -- 'E', 'F', 'G'
-    floor_area NUMERIC,
-    property_type TEXT,
-    ingested_at TIMESTAMP DEFAULT NOW()
+-- =========================================================================================
+-- VANTAGE INTELLIGENCE ENGINE - UNIFIED SCHEMA (SQLite Compatible)
+-- =========================================================================================
+
+-- 1. MASTER PROPERTY RECORD (The Anchor)
+-- Links UPRN (Ordnance Survey) with Title Number (Land Registry)
+CREATE TABLE IF NOT EXISTS master_properties (
+    uprn VARCHAR(20) PRIMARY KEY,
+    title_number VARCHAR(20),
+    address_line_1 TEXT,
+    postcode VARCHAR(10),
+    latitude DECIMAL(10, 6),
+    longitude DECIMAL(10, 6),
+    local_authority_code VARCHAR(10),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- Index for fast searching
-CREATE INDEX idx_epc_rating ON raw_epc_commercial(asset_rating_band);
+CREATE INDEX IF NOT EXISTS idx_properties_title ON master_properties(title_number);
+CREATE INDEX IF NOT EXISTS idx_properties_postcode ON master_properties(postcode);
+
+-- 2. CORPORATE REGISTRY (The "Who")
+-- Stores details on the companies that own land (UK & Overseas)
+CREATE TABLE IF NOT EXISTS corporate_registry (
+    company_number VARCHAR(20) PRIMARY KEY,
+    company_name TEXT,
+    incorporation_country TEXT,
+    company_category TEXT, -- 'LTD', 'PLC', 'OVERSEAS'
+    company_status TEXT,   -- 'ACTIVE', 'DISSOLVED', 'LIQUIDATION'
+    last_accounts_date DATE,
+    sic_codes TEXT
+);
+
+-- 3. LAND OWNERSHIP (The Link)
+-- Derived from CCOD/OCOD. Links a Property Title to a Corporate Owner.
+CREATE TABLE IF NOT EXISTS ownership_records (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title_number VARCHAR(20),
+    company_number VARCHAR(20),
+    proprietor_name TEXT,     -- Name as it appears on the deed
+    proprietor_address TEXT,  -- Address of the owner
+    date_registered DATE,
+    price_paid DECIMAL(15, 2), -- If available in CCOD
+    FOREIGN KEY(title_number) REFERENCES master_properties(title_number),
+    FOREIGN KEY(company_number) REFERENCES corporate_registry(company_number)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ownership_company ON ownership_records(company_number);
+
+-- 4. ENERGY PERFORMANCE (The Risk)
+-- Compliance data from EPC certificates
+CREATE TABLE IF NOT EXISTS epc_assessments (
+    certificate_id VARCHAR(24) PRIMARY KEY,
+    uprn VARCHAR(20),
+    inspection_date DATE,
+    asset_rating INTEGER,      -- The raw score (0-150+)
+    asset_rating_band CHAR(2), -- A-G
+    floor_area NUMERIC,
+    property_type TEXT,
+    is_latest BOOLEAN DEFAULT 1,
+    FOREIGN KEY(uprn) REFERENCES master_properties(uprn)
+);
+
+CREATE INDEX IF NOT EXISTS idx_epc_rating ON epc_assessments(asset_rating_band);
+CREATE INDEX IF NOT EXISTS idx_epc_uprn ON epc_assessments(uprn);
+
+-- 5. TRANSACTION HISTORY (The Value)
+-- Historical sales data from Price Paid Data (PPD)
+CREATE TABLE IF NOT EXISTS transaction_history (
+    transaction_id VARCHAR(40) PRIMARY KEY,
+    title_number VARCHAR(20),
+    transfer_date DATE,
+    price_paid DECIMAL(15, 2),
+    property_type CHAR(1), -- 'D' = Detached, 'S' = Semi, etc.
+    new_build_flag CHAR(1),
+    FOREIGN KEY(title_number) REFERENCES master_properties(title_number)
+);
+
+CREATE INDEX IF NOT EXISTS idx_trans_title ON transaction_history(title_number);
+
+-- =========================================================================================
+-- ANALYTICAL VIEWS (The "Intelligence")
+-- =========================================================================================
+
+-- View: Distressed Assets (F/G Rated) owned by Overseas Entities
+CREATE VIEW IF NOT EXISTS view_distressed_overseas AS
+SELECT 
+    p.uprn,
+    p.address_line_1,
+    p.title_number,
+    e.asset_rating_band,
+    o.proprietor_name,
+    c.incorporation_country
+FROM master_properties p
+JOIN epc_assessments e ON p.uprn = e.uprn
+JOIN ownership_records o ON p.title_number = o.title_number
+JOIN corporate_registry c ON o.company_number = c.company_number
+WHERE e.asset_rating_band IN ('F', 'G')
+  AND c.incorporation_country != 'United Kingdom';
