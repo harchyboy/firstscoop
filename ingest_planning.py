@@ -48,7 +48,7 @@ def ingest_planning():
     # We only query for assets we already track (Distressed) to save API calls
     with engine.connect() as conn:
         query_targets = text("""
-            SELECT uprn, postcode, latitude, longitude 
+            SELECT p.uprn, p.postcode, p.latitude, p.longitude 
             FROM master_properties p
             JOIN epc_assessments e ON p.uprn = e.uprn
             WHERE e.asset_rating_band IN ('E', 'F', 'G')
