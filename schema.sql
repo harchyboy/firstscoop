@@ -103,7 +103,7 @@ CREATE TABLE IF NOT EXISTS covenant_registry (
     FOREIGN KEY(title_number) REFERENCES master_properties(title_number)
 );
 
--- 8. SPATIAL INDEX (The "Compass") -- **NEW MODULE**
+-- 8. SPATIAL INDEX (The "Compass")
 -- Derived from OS Code-Point Open. Allows fast Postcode -> Lat/Lng lookups.
 CREATE TABLE IF NOT EXISTS postcode_index (
     postcode VARCHAR(10) PRIMARY KEY,
@@ -111,8 +111,27 @@ CREATE TABLE IF NOT EXISTS postcode_index (
     longitude DECIMAL(10, 6),
     eastings INTEGER,
     northings INTEGER,
-    district_code VARCHAR(10) -- e.g. E09000003 (Tower Hamlets)
+    district_code VARCHAR(10)
 );
+
+-- 9. VOA BUSINESS RATES (The "Vacancy & Tax Signal") -- **NEW MODULE**
+-- Derived from VOA Rating Lists (2023 & 2026 Draft)
+CREATE TABLE IF NOT EXISTS voa_ratings (
+    billing_authority_ref VARCHAR(50) PRIMARY KEY, -- The VOA ID
+    uprn VARCHAR(20),                              -- Linked via Address Match
+    address TEXT,
+    postcode VARCHAR(10),
+    description TEXT,                              -- e.g. "Offices and Premises"
+    rateable_value_2023 INTEGER,                   -- Current Tax Base
+    rateable_value_2026 INTEGER,                   -- Future Tax Base (Draft)
+    scat_code VARCHAR(10),                         -- Special Category (Use Class)
+    effective_date DATE,
+    list_year INTEGER,                             -- 2023 or 2026
+    FOREIGN KEY(uprn) REFERENCES master_properties(uprn)
+);
+
+CREATE INDEX IF NOT EXISTS idx_voa_postcode ON voa_ratings(postcode);
+CREATE INDEX IF NOT EXISTS idx_voa_rv ON voa_ratings(rateable_value_2023);
 
 -- =========================================================================================
 -- ANALYTICAL VIEWS (The "Intelligence")

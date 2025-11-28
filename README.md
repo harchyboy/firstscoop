@@ -2,7 +2,7 @@
 
 **The "Bloomberg Terminal" for UK Commercial Property.**
 
-Vantage is a data intelligence platform that unifies scattered UK property datasets (EPC, Land Registry, Companies House) to identify distressed assets and their corporate owners before they hit the market.
+Vantage is a data intelligence platform that unifies scattered UK property datasets (EPC, Land Registry, Companies House, VOA) to identify distressed assets and their corporate owners before they hit the market.
 
 ---
 
@@ -16,13 +16,14 @@ The engine runs on a local **SQLite** database (for MVP) powered by a **Python**
 | **2. Ownership** | `ingest_ccod.py` | **Land Registry CCOD** (S3) |
 | **3. Transactions** | `ingest_ppd.py` | **Land Registry PPD** (S3) |
 | **4. Spatial** | `ingest_spatial.py` | **OS Code-Point & UPRN** (S3) |
-| **5. Leases** | `ingest_leases.py` | **Registered Leases** (Pending Approval) |
-| **6. Covenants** | `ingest_covenants.py` | **Restrictive Covenants** (Risk Flag) |
-| **7. Link** | `match_addresses.py` | **Fuzzy Logic** (Bridge datasets) |
-| **8. Enrich** | `enrich_owners.py` | **Companies House API** (Directors & Debt) |
-| **9. Valuation** | `analyze_comps.py` | **Sales + EPC Join** (Calc £/sqft) |
-| **10. Report** | `analyze_distress.py` | **Intelligence Report** |
-| **11. API** | `vantage_api.py` | **FastAPI** (Serves the UI) |
+| **5. VOA** | `ingest_voa.py` | **Business Rates** (Vacancy Signal) |
+| **6. Leases** | `ingest_leases.py` | **Registered Leases** (Pending Approval) |
+| **7. Covenants** | `ingest_covenants.py` | **Restrictive Covenants** (Risk Flag) |
+| **8. Link** | `match_addresses.py` | **Fuzzy Logic** (Bridge datasets) |
+| **9. Enrich** | `enrich_owners.py` | **Companies House API** (Directors & Debt) |
+| **10. Valuation** | `analyze_comps.py` | **Sales + EPC Join** (Calc £/sqft) |
+| **11. Report** | `analyze_distress.py` | **Intelligence Report** |
+| **12. API** | `vantage_api.py` | **FastAPI** (Serves the UI) |
 
 ---
 
@@ -84,31 +85,37 @@ Loads 5M+ recent property transactions (since 2020) to enable valuation modeling
 python ingest_ppd.py
 ```
 
-### Step 5: Ingest EPC Data (The "Risk")
+### Step 5: Ingest VOA Data (The "Liability")
+Loads Business Rates (2023 Current + 2026 Future) to spot tax hikes and vacancy.
+```bash
+python ingest_voa.py
+```
+
+### Step 6: Ingest EPC Data (The "Risk")
 Loads Energy Performance Certificates to identify F/G rated assets.
 ```bash
 python vantage_ingest.py
 ```
 
-### Step 6: Link Datasets (The "Magic")
+### Step 7: Link Datasets (The "Magic")
 Uses fuzzy logic to bridge the gap between EPC Addresses and Land Registry Titles.
 ```bash
 python match_addresses.py
 ```
 
-### Step 7: Generate Intelligence Report
+### Step 8: Generate Intelligence Report
 Queries the graph to find Distressed Assets linked to Corporate Owners.
 ```bash
 python analyze_distress.py
 ```
 
-### Step 8: Deep Dive Enrichment
+### Step 9: Deep Dive Enrichment
 Fetches Director details and **Debt/Charge Maturity** dates to spot financial distress.
 ```bash
 python enrich_owners.py
 ```
 
-### Step 9: Valuation Analysis
+### Step 10: Valuation Analysis
 Runs the "Comps Engine" to calculate £/sqft for a specific target area.
 ```bash
 # Edit the postcode in the script to target a specific area
@@ -141,6 +148,7 @@ To serve the data to the frontend "Terminal" interface:
 - **`master_properties`**: The central index (UPRN + Title Number).
 - **`postcode_index`**: Mapping from Postcode -> Lat/Lng (OSGB36/WGS84).
 - **`epc_assessments`**: Energy ratings (A-G), floor area, dates.
+- **`voa_ratings`**: Rateable Value (Tax) and Use Class.
 - **`ownership_records`**: Link table between Title and Company.
 - **`transaction_history`**: Sales price, date, and type.
 - **`corporate_registry`**: Company details, status, and debt flags.
