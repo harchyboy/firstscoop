@@ -151,9 +151,8 @@ CREATE TABLE IF NOT EXISTS planning_history (
 CREATE INDEX IF NOT EXISTS idx_planning_status ON planning_history(status);
 CREATE INDEX IF NOT EXISTS idx_planning_expiry ON planning_history(expiry_date);
 
--- 11. MOBILITY & FOOTFALL (The "God Mode") -- **NEW MODULE**
+-- 11. MOBILITY & FOOTFALL (The "God Mode")
 -- Stores transport/movement data around assets. 
--- Source: TfL Entry/Exit Data (Proxy) or Huq (Enterprise).
 CREATE TABLE IF NOT EXISTS mobility_metrics (
     location_id VARCHAR(50) PRIMARY KEY,
     name VARCHAR(100),             -- e.g. "Whitechapel Station"
@@ -166,6 +165,38 @@ CREATE TABLE IF NOT EXISTS mobility_metrics (
 
 CREATE INDEX IF NOT EXISTS idx_mobility_lat ON mobility_metrics(latitude);
 CREATE INDEX IF NOT EXISTS idx_mobility_lng ON mobility_metrics(longitude);
+
+-- 12. FSA RATINGS (The "Ghost Town" Signal) -- **NEW MODULE**
+-- Source: Food Standards Agency API.
+-- Tracks freshness of hygiene ratings to detect zombie high streets.
+CREATE TABLE IF NOT EXISTS fsa_ratings (
+    fsa_id INTEGER PRIMARY KEY,
+    business_name TEXT,
+    address_line_1 TEXT,
+    postcode VARCHAR(10),
+    rating_value VARCHAR(10),      -- '5', '1', 'AwaitingInspection'
+    rating_date DATE,              -- Critical for 'Staleness' signal
+    latitude DECIMAL(10, 6),
+    longitude DECIMAL(10, 6),
+    local_authority_code VARCHAR(10)
+);
+
+CREATE INDEX IF NOT EXISTS idx_fsa_date ON fsa_ratings(rating_date);
+CREATE INDEX IF NOT EXISTS idx_fsa_postcode ON fsa_ratings(postcode);
+
+-- 13. CONNECTIVITY (The "Desperation" Signal) -- **NEW MODULE**
+-- Source: Ofcom Connected Nations.
+-- Tracks broadband speeds at UPRN level.
+CREATE TABLE IF NOT EXISTS connectivity_metrics (
+    uprn VARCHAR(20) PRIMARY KEY,
+    max_download_speed INTEGER,    -- Mbps
+    max_upload_speed INTEGER,
+    fiber_availability BOOLEAN,    -- FTTP present?
+    five_g_availability BOOLEAN,
+    FOREIGN KEY(uprn) REFERENCES master_properties(uprn)
+);
+
+CREATE INDEX IF NOT EXISTS idx_connectivity_speed ON connectivity_metrics(max_download_speed);
 
 -- =========================================================================================
 -- ANALYTICAL VIEWS (The "Intelligence")

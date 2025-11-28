@@ -2,7 +2,7 @@
 
 **The "Bloomberg Terminal" for UK Commercial Property.**
 
-Vantage is a data intelligence platform that unifies scattered UK property datasets (EPC, Land Registry, Companies House, VOA, PlanIt, TfL) to identify distressed assets and their corporate owners before they hit the market.
+Vantage is a data intelligence platform that unifies scattered UK property datasets (EPC, Land Registry, Companies House, VOA, PlanIt, TfL, FSA, Ofcom) to identify distressed assets and their corporate owners before they hit the market.
 
 ---
 
@@ -19,13 +19,15 @@ The engine runs on a local **SQLite** database (for MVP) powered by a **Python**
 | **5. VOA** | `ingest_voa.py` | **Business Rates** (Vacancy Signal) |
 | **6. Planning** | `ingest_planning.py` | **PlanIt API** (Lapsed Consents) |
 | **7. Mobility** | `ingest_mobility.py` | **TfL API** (Footfall Heatmaps) |
-| **8. Leases** | `ingest_leases.py` | **Registered Leases** (Pending Approval) |
-| **9. Covenants** | `ingest_covenants.py` | **Restrictive Covenants** (Risk Flag) |
-| **10. Link** | `match_addresses.py` | **Fuzzy Logic** (Bridge datasets) |
-| **11. Enrich** | `enrich_owners.py` | **Companies House API** (Directors & Debt) |
-| **12. Valuation** | `analyze_comps.py` | **Sales + EPC Join** (Calc £/sqft) |
-| **13. Report** | `analyze_distress.py` | **Intelligence Report** |
-| **14. API** | `vantage_api.py` | **FastAPI** (Serves the UI) |
+| **8. FSA** | `ingest_fsa.py` | **Hygiene Ratings** (Ghost Town Signal) |
+| **9. Broadband** | `ingest_connectivity.py` | **Ofcom Data** (Tech Desperation) |
+| **10. Leases** | `ingest_leases.py` | **Registered Leases** (Pending Approval) |
+| **11. Covenants** | `ingest_covenants.py` | **Restrictive Covenants** (Risk Flag) |
+| **12. Link** | `match_addresses.py` | **Fuzzy Logic** (Bridge datasets) |
+| **13. Enrich** | `enrich_owners.py` | **Companies House API** (Directors & Debt) |
+| **14. Valuation** | `analyze_comps.py` | **Sales + EPC Join** (Calc £/sqft) |
+| **15. Report** | `analyze_distress.py` | **Intelligence Report** |
+| **16. API** | `vantage_api.py` | **FastAPI** (Serves the UI) |
 
 ---
 
@@ -111,25 +113,37 @@ Scans TfL API for transport nodes to build footfall/vibrancy heatmaps.
 python ingest_mobility.py
 ```
 
-### Step 9: Link Datasets (The "Magic")
+### Step 9: Ingest Retail Signals (The "Pulse")
+Scans FSA Food Hygiene ratings to find decaying high streets.
+```bash
+python ingest_fsa.py
+```
+
+### Step 10: Ingest Connectivity (The "Pipe")
+Loads Ofcom broadband data to find fiber deserts.
+```bash
+python ingest_connectivity.py
+```
+
+### Step 11: Link Datasets (The "Magic")
 Uses fuzzy logic to bridge the gap between EPC Addresses and Land Registry Titles.
 ```bash
 python match_addresses.py
 ```
 
-### Step 10: Generate Intelligence Report
+### Step 12: Generate Intelligence Report
 Queries the graph to find Distressed Assets linked to Corporate Owners.
 ```bash
 python analyze_distress.py
 ```
 
-### Step 11: Deep Dive Enrichment
+### Step 13: Deep Dive Enrichment
 Fetches Director details and **Debt/Charge Maturity** dates to spot financial distress.
 ```bash
 python enrich_owners.py
 ```
 
-### Step 12: Valuation Analysis
+### Step 14: Valuation Analysis
 Runs the "Comps Engine" to calculate £/sqft for a specific target area.
 ```bash
 # Edit the postcode in the script to target a specific area
@@ -165,6 +179,8 @@ To serve the data to the frontend "Terminal" interface:
 - **`voa_ratings`**: Rateable Value (Tax) and Use Class.
 - **`planning_history`**: Application status and expiry dates.
 - **`mobility_metrics`**: Footfall proxies (Station exits, Bus stops).
+- **`fsa_ratings`**: Hygiene ratings and dates (Retail freshness).
+- **`connectivity_metrics`**: Download speeds and 5G availability.
 - **`ownership_records`**: Link table between Title and Company.
 - **`transaction_history`**: Sales price, date, and type.
 - **`corporate_registry`**: Company details, status, and debt flags.
