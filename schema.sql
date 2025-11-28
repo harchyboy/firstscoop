@@ -114,7 +114,7 @@ CREATE TABLE IF NOT EXISTS postcode_index (
     district_code VARCHAR(10)
 );
 
--- 9. VOA BUSINESS RATES (The "Vacancy & Tax Signal") -- **NEW MODULE**
+-- 9. VOA BUSINESS RATES (The "Vacancy & Tax Signal")
 -- Derived from VOA Rating Lists (2023 & 2026 Draft)
 CREATE TABLE IF NOT EXISTS voa_ratings (
     billing_authority_ref VARCHAR(50) PRIMARY KEY, -- The VOA ID
@@ -132,6 +132,24 @@ CREATE TABLE IF NOT EXISTS voa_ratings (
 
 CREATE INDEX IF NOT EXISTS idx_voa_postcode ON voa_ratings(postcode);
 CREATE INDEX IF NOT EXISTS idx_voa_rv ON voa_ratings(rateable_value_2023);
+
+-- 10. PLANNING HISTORY (The "Developer Intent") -- **NEW MODULE**
+-- Derived from PlanIt API. Tracks Refusals and Approvals.
+CREATE TABLE IF NOT EXISTS planning_history (
+    application_id VARCHAR(50) PRIMARY KEY,
+    uprn VARCHAR(20),                          -- Linked to Property
+    address TEXT,
+    description TEXT,                          -- e.g. "Erection of 5 storey block..."
+    status VARCHAR(50),                        -- 'Granted', 'Refused', 'Withdrawn'
+    decision_date DATE,
+    expiry_date DATE,                          -- Calculated: Granted + 3 Years
+    is_lapsing_soon BOOLEAN DEFAULT 0,         -- Flag for "Snipe" opportunity
+    url TEXT,                                  -- Link to full docs
+    FOREIGN KEY(uprn) REFERENCES master_properties(uprn)
+);
+
+CREATE INDEX IF NOT EXISTS idx_planning_status ON planning_history(status);
+CREATE INDEX IF NOT EXISTS idx_planning_expiry ON planning_history(expiry_date);
 
 -- =========================================================================================
 -- ANALYTICAL VIEWS (The "Intelligence")

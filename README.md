@@ -2,7 +2,7 @@
 
 **The "Bloomberg Terminal" for UK Commercial Property.**
 
-Vantage is a data intelligence platform that unifies scattered UK property datasets (EPC, Land Registry, Companies House, VOA) to identify distressed assets and their corporate owners before they hit the market.
+Vantage is a data intelligence platform that unifies scattered UK property datasets (EPC, Land Registry, Companies House, VOA, PlanIt) to identify distressed assets and their corporate owners before they hit the market.
 
 ---
 
@@ -17,13 +17,14 @@ The engine runs on a local **SQLite** database (for MVP) powered by a **Python**
 | **3. Transactions** | `ingest_ppd.py` | **Land Registry PPD** (S3) |
 | **4. Spatial** | `ingest_spatial.py` | **OS Code-Point & UPRN** (S3) |
 | **5. VOA** | `ingest_voa.py` | **Business Rates** (Vacancy Signal) |
-| **6. Leases** | `ingest_leases.py` | **Registered Leases** (Pending Approval) |
-| **7. Covenants** | `ingest_covenants.py` | **Restrictive Covenants** (Risk Flag) |
-| **8. Link** | `match_addresses.py` | **Fuzzy Logic** (Bridge datasets) |
-| **9. Enrich** | `enrich_owners.py` | **Companies House API** (Directors & Debt) |
-| **10. Valuation** | `analyze_comps.py` | **Sales + EPC Join** (Calc £/sqft) |
-| **11. Report** | `analyze_distress.py` | **Intelligence Report** |
-| **12. API** | `vantage_api.py` | **FastAPI** (Serves the UI) |
+| **6. Planning** | `ingest_planning.py` | **PlanIt API** (Lapsed Consents) |
+| **7. Leases** | `ingest_leases.py` | **Registered Leases** (Pending Approval) |
+| **8. Covenants** | `ingest_covenants.py` | **Restrictive Covenants** (Risk Flag) |
+| **9. Link** | `match_addresses.py` | **Fuzzy Logic** (Bridge datasets) |
+| **10. Enrich** | `enrich_owners.py` | **Companies House API** (Directors & Debt) |
+| **11. Valuation** | `analyze_comps.py` | **Sales + EPC Join** (Calc £/sqft) |
+| **12. Report** | `analyze_distress.py` | **Intelligence Report** |
+| **13. API** | `vantage_api.py` | **FastAPI** (Serves the UI) |
 
 ---
 
@@ -97,25 +98,31 @@ Loads Energy Performance Certificates to identify F/G rated assets.
 python vantage_ingest.py
 ```
 
-### Step 7: Link Datasets (The "Magic")
+### Step 7: Ingest Planning History (The "Intent")
+Scans PlanIt API for lapsed consents (permissions expiring soon).
+```bash
+python ingest_planning.py
+```
+
+### Step 8: Link Datasets (The "Magic")
 Uses fuzzy logic to bridge the gap between EPC Addresses and Land Registry Titles.
 ```bash
 python match_addresses.py
 ```
 
-### Step 8: Generate Intelligence Report
+### Step 9: Generate Intelligence Report
 Queries the graph to find Distressed Assets linked to Corporate Owners.
 ```bash
 python analyze_distress.py
 ```
 
-### Step 9: Deep Dive Enrichment
+### Step 10: Deep Dive Enrichment
 Fetches Director details and **Debt/Charge Maturity** dates to spot financial distress.
 ```bash
 python enrich_owners.py
 ```
 
-### Step 10: Valuation Analysis
+### Step 11: Valuation Analysis
 Runs the "Comps Engine" to calculate £/sqft for a specific target area.
 ```bash
 # Edit the postcode in the script to target a specific area
@@ -149,6 +156,7 @@ To serve the data to the frontend "Terminal" interface:
 - **`postcode_index`**: Mapping from Postcode -> Lat/Lng (OSGB36/WGS84).
 - **`epc_assessments`**: Energy ratings (A-G), floor area, dates.
 - **`voa_ratings`**: Rateable Value (Tax) and Use Class.
+- **`planning_history`**: Application status and expiry dates.
 - **`ownership_records`**: Link table between Title and Company.
 - **`transaction_history`**: Sales price, date, and type.
 - **`corporate_registry`**: Company details, status, and debt flags.
@@ -161,7 +169,6 @@ To serve the data to the frontend "Terminal" interface:
 
 - [ ] **Registered Leases**: Ingest 2.2GB dataset to calculate Income Yield and Expiry Cliffs.
 - [ ] **Restrictive Covenants**: Flag titles with development blockers (Monetization Trigger).
-- [ ] **Planning Data Ingest**: Add planning applications to spot development potential.
 - [ ] **Geospatial Visualization**: Render cadastral parcels on Mapbox (PostGIS migration).
 - [ ] **UBO Graph**: Recursive graph traversal to find Ultimate Beneficial Owners (Neo4j).
 - [ ] **Register of Overseas Entities**: Ingest ROE dataset for offshore ownership transparency.
