@@ -77,6 +77,43 @@ CREATE TABLE IF NOT EXISTS transaction_history (
 
 CREATE INDEX IF NOT EXISTS idx_trans_title ON transaction_history(title_number);
 
+-- 6. LEASE REGISTRY (The Income/Expiry)
+-- Derived from Registered Leases dataset (2.2GB)
+CREATE TABLE IF NOT EXISTS lease_registry (
+    unique_lease_id VARCHAR(50) PRIMARY KEY, -- Usually Title + Lease Count
+    title_number VARCHAR(20),      -- Link to Freehold Title
+    tenure VARCHAR(50),            -- 'Leasehold'
+    lease_date DATE,               -- Start of lease
+    lease_term_years INTEGER,      -- Duration
+    lease_expiry_date DATE,        -- Calculated (Start + Term)
+    lessee_name TEXT,              -- The Tenant (if available)
+    alienation_clause BOOLEAN,     -- Can they sublet? (If extracted)
+    FOREIGN KEY(title_number) REFERENCES master_properties(title_number)
+);
+
+CREATE INDEX IF NOT EXISTS idx_lease_title ON lease_registry(title_number);
+CREATE INDEX IF NOT EXISTS idx_lease_expiry ON lease_registry(lease_expiry_date);
+
+-- 7. RESTRICTIVE COVENANTS (The "Tripwire")
+-- Derived from Restrictive Covenants dataset (3.65GB)
+CREATE TABLE IF NOT EXISTS covenant_registry (
+    title_number VARCHAR(20) PRIMARY KEY,
+    has_covenant BOOLEAN DEFAULT 1,
+    last_updated DATE DEFAULT CURRENT_DATE,
+    FOREIGN KEY(title_number) REFERENCES master_properties(title_number)
+);
+
+-- 8. SPATIAL INDEX (The "Compass") -- **NEW MODULE**
+-- Derived from OS Code-Point Open. Allows fast Postcode -> Lat/Lng lookups.
+CREATE TABLE IF NOT EXISTS postcode_index (
+    postcode VARCHAR(10) PRIMARY KEY,
+    latitude DECIMAL(10, 6),
+    longitude DECIMAL(10, 6),
+    eastings INTEGER,
+    northings INTEGER,
+    district_code VARCHAR(10) -- e.g. E09000003 (Tower Hamlets)
+);
+
 -- =========================================================================================
 -- ANALYTICAL VIEWS (The "Intelligence")
 -- =========================================================================================
