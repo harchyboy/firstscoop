@@ -133,7 +133,7 @@ CREATE TABLE IF NOT EXISTS voa_ratings (
 CREATE INDEX IF NOT EXISTS idx_voa_postcode ON voa_ratings(postcode);
 CREATE INDEX IF NOT EXISTS idx_voa_rv ON voa_ratings(rateable_value_2023);
 
--- 10. PLANNING HISTORY (The "Developer Intent") -- **NEW MODULE**
+-- 10. PLANNING HISTORY (The "Developer Intent")
 -- Derived from PlanIt API. Tracks Refusals and Approvals.
 CREATE TABLE IF NOT EXISTS planning_history (
     application_id VARCHAR(50) PRIMARY KEY,
@@ -150,6 +150,22 @@ CREATE TABLE IF NOT EXISTS planning_history (
 
 CREATE INDEX IF NOT EXISTS idx_planning_status ON planning_history(status);
 CREATE INDEX IF NOT EXISTS idx_planning_expiry ON planning_history(expiry_date);
+
+-- 11. MOBILITY & FOOTFALL (The "God Mode") -- **NEW MODULE**
+-- Stores transport/movement data around assets. 
+-- Source: TfL Entry/Exit Data (Proxy) or Huq (Enterprise).
+CREATE TABLE IF NOT EXISTS mobility_metrics (
+    location_id VARCHAR(50) PRIMARY KEY,
+    name VARCHAR(100),             -- e.g. "Whitechapel Station"
+    latitude DECIMAL(10, 6),
+    longitude DECIMAL(10, 6),
+    annual_footfall INTEGER,       -- e.g. 14,000,000
+    metric_type VARCHAR(20),       -- 'TUBE_ENTRY', 'BUS_STOP', 'MOBILE_DEVICE'
+    last_updated DATE DEFAULT CURRENT_DATE
+);
+
+CREATE INDEX IF NOT EXISTS idx_mobility_lat ON mobility_metrics(latitude);
+CREATE INDEX IF NOT EXISTS idx_mobility_lng ON mobility_metrics(longitude);
 
 -- =========================================================================================
 -- ANALYTICAL VIEWS (The "Intelligence")
