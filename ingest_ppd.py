@@ -13,44 +13,70 @@ def ingest_ppd():
     print("🚀 Starting Price Paid Data (PPD) Ingestion Pipeline...")
     
     # 1. Setup
-    load_dotenv()
-    lake = VantageDataLake()
+    # Explicitly reload environment variables to ensure AWS keys are present
+    load_dotenv(override=True)
+    
+    # Check if keys are actually loaded
+    if not os.getenv('AWS_ACCESS_KEY_ID'):
+        print("⚠️  Warning: AWS Credentials not found. Will only process local files.")
+        # Continue...
+    else:
+        lake = VantageDataLake()
+    
     engine = create_engine(DB_PATH)
     
-    # 2. Locate Data
-    # S3 Key: raw/ppd/baseline/pp-complete.csv
-    remote_key = "raw/ppd/baseline/pp-complete.csv"
-    local_path = "./epc_data/pp-complete.csv"
-    
-    if not os.path.exists(local_path):
-        print(f"⬇️  Downloading PPD Source File (5GB+)... This may take a while.")
-        lake.download_file(remote_key, local_path)
-    else:
-        print("✅ PPD Source File found locally.")
+    # Ensure staging table exists first
+    with engine.connect() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS raw_ppd_staging (
+                transaction_id VARCHAR(40) PRIMARY KEY,
+                price_paid INTEGER,
+                transfer_date DATE,
+                postcode VARCHAR(10),
+                property_type CHAR(1),
+                full_address TEXT,
+                paon TEXT, saon TEXT, street TEXT
+            )
+        """))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_ppd_postcode ON raw_ppd_staging(postcode)"))
 
-    # 3. Stream & Process
-    print(f"🔄 Processing Transactions from {START_YEAR} onwards...")
+    # --- PART A: BASELINE (The History) ---
+    remote_key_baseline = "raw/ppd/baseline/pp-complete.csv"
+    local_path_baseline = "./epc_data/pp-complete.csv"
     
-    # Columns in pp-complete.csv (No headers in raw file usually)
-    # 0: Transaction ID
-    # 1: Price
-    # 2: Date
-    # 3: Postcode
-    # 4: Property Type (D, S, T, F, O) -> O = Other (Commercial potential)
-    # 5: Old/New
-    # 6: Duration (F/L)
-    # 7: PAON (Primary Address)
-    # 8: SAON (Secondary Address)
-    # 9: Street
-    # 10: Locality
-    # 11: Town/City
-    # 12: District
-    # 13: County
-    # 14: PPD Category Type (A = Standard, B = Additional)
-    # 15: Record Status
+    if not os.path.exists(local_path_baseline):
+        print(f"⬇️  Downloading PPD Baseline (5GB+)...")
+        lake.download_file(remote_key_baseline, local_path_baseline)
+    else:
+        print("✅ PPD Baseline found locally.")
+
+    process_ppd_file(local_path_baseline, engine, "Baseline", filter_year=START_YEAR)
+
+    # --- PART B: MONTHLY UPDATE (The Freshness) ---
+    remote_key_monthly = "raw/ppd/monthly/pp-monthly-update-new-version.csv"
+    local_path_monthly = "./epc_data/pp-monthly-update.csv"
+    
+    # Check credentials before attempting download
+    if os.getenv('AWS_ACCESS_KEY_ID'):
+        print(f"⬇️  Downloading PPD Monthly Update...")
+        try:
+            lake.download_file(remote_key_monthly, local_path_monthly)
+            process_ppd_file(local_path_monthly, engine, "Monthly Update", filter_year=None)
+        except Exception as e:
+            print(f"⚠️  Could not download monthly update (Check AWS Keys): {e}")
+    else:
+        print("⚠️  Skipping Monthly Update (AWS Keys missing). Using Baseline data only.")
+
+    print("=========================================")
+    print(f"🎉 PPD PIPELINE COMPLETE.")
+    print("=========================================")
+
+
+def process_ppd_file(filepath, engine, label, filter_year=None):
+    print(f"\n🔄 Processing {label} ({filepath})...")
     
     chunk_iter = pd.read_csv(
-        local_path, 
+        filepath, 
         chunksize=BATCH_SIZE, 
         header=None, 
         names=[
@@ -64,40 +90,16 @@ def ingest_ppd():
     
     for i, df in enumerate(chunk_iter):
         
-        # FILTER: Date Range
-        df_recent = df[df['date'].dt.year >= START_YEAR].copy()
+        # FILTER: Date Range (Only for baseline, monthly is always relevant)
+        if filter_year:
+            df_recent = df[df['date'].dt.year >= filter_year].copy()
+        else:
+            df_recent = df.copy()
         
         if df_recent.empty:
             continue
             
-        # Transform for DB
-        # We map to our 'transaction_history' table schema
-        # transaction_id, title_number (unknown in PPD), transfer_date, price_paid, property_type, new_build_flag
-        
-        # Note: PPD doesn't have Title Numbers. Linking is done via Address/Postcode matching later.
-        
-        records = df_recent[['id', 'date', 'price', 'type', 'old_new']].copy()
-        records.columns = ['transaction_id', 'transfer_date', 'price_paid', 'property_type', 'new_build_flag']
-        
-        # We also need to store address components to enable matching
-        # For this MVP schema, transaction_history relies on title_number which we don't have here.
-        # We should create a raw landing table for PPD first to allow matching logic.
-        
         with engine.connect() as conn:
-            # Create staging table if not exists (since schema.sql defined the 'linked' version)
-            conn.execute(text("""
-                CREATE TABLE IF NOT EXISTS raw_ppd_staging (
-                    transaction_id VARCHAR(40) PRIMARY KEY,
-                    price_paid INTEGER,
-                    transfer_date DATE,
-                    postcode VARCHAR(10),
-                    property_type CHAR(1),
-                    full_address TEXT,
-                    paon TEXT, saon TEXT, street TEXT
-                )
-            """))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_ppd_postcode ON raw_ppd_staging(postcode)"))
-            
             # Construct rudimentary address for display/matching
             df_recent['full_address'] = (
                 df_recent['paon'].fillna('') + ' ' + 
@@ -110,8 +112,9 @@ def ingest_ppd():
             
             upload_df.to_sql('temp_ppd', conn, if_exists='replace', index=False)
             
+            # Upsert (Replace if transaction ID exists, usually implies an update/correction)
             conn.execute(text("""
-                INSERT OR IGNORE INTO raw_ppd_staging 
+                INSERT OR REPLACE INTO raw_ppd_staging 
                 (transaction_id, price_paid, transfer_date, postcode, property_type, full_address, paon, saon, street)
                 SELECT transaction_id, price_paid, transfer_date, postcode, property_type, full_address, paon, saon, street 
                 FROM temp_ppd
@@ -122,12 +125,9 @@ def ingest_ppd():
         total_ingested += count
         
         if i % 10 == 0:
-            print(f"   ✅ Batch {i}: Added {count} recent sales (Total: {total_ingested})...")
+            print(f"   ✅ Batch {i}: Added {count} sales...")
 
-    print("=========================================")
-    print(f"🎉 PPD INGESTION COMPLETE.")
-    print(f"📊 Total Recent Sales Loaded: {total_ingested}")
-    print("=========================================")
+    print(f"   📊 {label} Loaded: {total_ingested} records.")
 
 if __name__ == "__main__":
     ingest_ppd()
